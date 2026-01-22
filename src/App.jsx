@@ -375,138 +375,147 @@ const TideDataProcessor = () => {
   };
 
   const exportChart = async () => {
-    const chartElement = document.querySelector('.recharts-wrapper');
-    if (!chartElement) {
+    const svgElement = document.querySelector('.recharts-wrapper svg');
+    if (!svgElement) {
       alert('Chart not found. Please make sure the chart is visible.');
       return;
     }
 
-    const svgElement = chartElement.querySelector('svg');
-    if (!svgElement) {
-      alert('SVG element not found in chart.');
-      return;
-    }
-
     try {
-      // Clone the SVG
-      const clonedSvg = svgElement.cloneNode(true);
-      
-      // Get dimensions
+      // Get the SVG's bounding box for accurate dimensions
       const bbox = svgElement.getBoundingClientRect();
-      const svgWidth = bbox.width || 800;
-      const svgHeight = bbox.height || 400;
+      const width = Math.ceil(bbox.width);
+      const height = Math.ceil(bbox.height);
       
-      // Set dimensions and add white background to SVG itself
-      clonedSvg.setAttribute('width', svgWidth);
-      clonedSvg.setAttribute('height', svgHeight);
-      clonedSvg.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
+      // Create a new SVG element with all styles inlined
+      const clonedSvg = svgElement.cloneNode(true);
+      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      clonedSvg.setAttribute('width', width);
+      clonedSvg.setAttribute('height', height);
       
-      // Add white background rectangle as first child
+      // Function to get all computed styles for an element
+      const copyComputedStyles = (sourceElement, targetElement) => {
+        const computedStyle = window.getComputedStyle(sourceElement);
+        
+        // List of style properties to copy
+        const stylesToCopy = [
+          'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap',
+          'stroke-linejoin', 'opacity', 'font-family', 'font-size', 'font-weight',
+          'font-style', 'text-anchor', 'dominant-baseline', 'transform',
+          'clip-path', 'filter', 'mask'
+        ];
+        
+        stylesToCopy.forEach(prop => {
+          const value = computedStyle.getPropertyValue(prop);
+          if (value && value !== 'none' && value !== 'normal' && value !== 'auto') {
+            targetElement.style.setProperty(prop, value);
+          }
+        });
+        
+        // Copy presentation attributes
+        const presentationAttrs = ['fill', 'stroke', 'stroke-width', 'opacity'];
+        presentationAttrs.forEach(attr => {
+          if (sourceElement.hasAttribute(attr)) {
+            targetElement.setAttribute(attr, sourceElement.getAttribute(attr));
+          }
+        });
+      };
+      
+      // Recursively copy styles from all elements
+      const copyAllStyles = (source, target) => {
+        copyComputedStyles(source, target);
+        
+        const sourceChildren = Array.from(source.children);
+        const targetChildren = Array.from(target.children);
+        
+        sourceChildren.forEach((sourceChild, index) => {
+          if (targetChildren[index]) {
+            copyAllStyles(sourceChild, targetChildren[index]);
+          }
+        });
+      };
+      
+      copyAllStyles(svgElement, clonedSvg);
+      
+      // Add white background as first element
       const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       bgRect.setAttribute('width', '100%');
       bgRect.setAttribute('height', '100%');
       bgRect.setAttribute('fill', 'white');
+      bgRect.setAttribute('x', '0');
+      bgRect.setAttribute('y', '0');
       clonedSvg.insertBefore(bgRect, clonedSvg.firstChild);
       
-      // Inline all styles - this is critical for Recharts
-      const allElements = clonedSvg.querySelectorAll('*');
-      allElements.forEach(element => {
-        const computedStyle = window.getComputedStyle(svgElement.querySelector(`[class="${element.className.baseVal}"]`) || element);
-        
-        // Copy important styles
-        const importantStyles = [
-          'fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 
-          'font-weight', 'opacity', 'transform', 'text-anchor'
-        ];
-        
-        importantStyles.forEach(style => {
-          const value = computedStyle.getPropertyValue(style);
-          if (value && value !== 'none' && value !== 'normal') {
-            element.style[style] = value;
-          }
-        });
-      });
-      
-      // Serialize with proper encoding
+      // Convert SVG to string
       const serializer = new XMLSerializer();
-      let svgString = serializer.serializeToString(clonedSvg);
+      const svgString = serializer.serializeToString(clonedSvg);
       
-      // Add XML declaration and proper namespaces
-      svgString = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>' + svgString;
+      // Create a data URL (this is more reliable than blob URL for SVG)
+      const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
       
-      // Create blob and object URL
-      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(svgBlob);
-      
-      // Create image
-      const img = new Image();
-      img.width = svgWidth;
-      img.height = svgHeight;
-      
-      // Create canvas
+      // Create canvas for high-quality export
       const canvas = document.createElement('canvas');
-      const pixelRatio = 2; // For high quality
-      canvas.width = svgWidth * pixelRatio;
-      canvas.height = svgHeight * pixelRatio;
-      canvas.style.width = svgWidth + 'px';
-      canvas.style.height = svgHeight + 'px';
+      const scale = 3; // 3x for very high quality
+      canvas.width = width * scale;
+      canvas.height = height * scale;
       
       const ctx = canvas.getContext('2d');
-      ctx.scale(pixelRatio, pixelRatio);
+      ctx.scale(scale, scale);
       
-      img.onload = () => {
-        // Draw white background
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, svgWidth, svgHeight);
+      // Draw white background on canvas
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, width, height);
+      
+      // Create and load image
+      const img = new Image();
+      img.width = width;
+      img.height = height;
+      
+      // Wait for image to load
+      await new Promise((resolve, reject) => {
+        img.onload = () => {
+          try {
+            // Draw the SVG image onto canvas
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve();
+          } catch (err) {
+            reject(new Error('Failed to draw image on canvas: ' + err.message));
+          }
+        };
         
-        // Draw image
-        ctx.drawImage(img, 0, 0, svgWidth, svgHeight);
+        img.onerror = (err) => {
+          reject(new Error('Failed to load SVG image: ' + err));
+        };
+        
+        // Set the source to trigger loading
+        img.src = svgDataUrl;
+      });
+      
+      // Convert canvas to blob and download
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          throw new Error('Failed to create image blob from canvas');
+        }
+        
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        link.download = `tide_chart_${timestamp}.png`;
+        link.href = url;
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
         
         // Clean up
-        URL.revokeObjectURL(url);
+        setTimeout(() => URL.revokeObjectURL(url), 100);
         
-        // Convert to PNG and download
-        canvas.toBlob((blob) => {
-          if (!blob) {
-            alert('Failed to create PNG. Please try using your browser screenshot tool instead.');
-            return;
-          }
-          
-          const pngUrl = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.download = `tide_chart_${new Date().getTime()}.png`;
-          link.href = pngUrl;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          
-          // Cleanup after a delay
-          setTimeout(() => URL.revokeObjectURL(pngUrl), 100);
-        }, 'image/png', 1.0);
-      };
-      
-      img.onerror = (err) => {
-        console.error('Image load error:', err);
-        URL.revokeObjectURL(url);
-        
-        // Fallback: offer SVG download instead
-        if (confirm('PNG export failed. Would you like to download as SVG instead?')) {
-          const svgDownloadUrl = URL.createObjectURL(svgBlob);
-          const link = document.createElement('a');
-          link.download = `tide_chart_${new Date().getTime()}.svg`;
-          link.href = svgDownloadUrl;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setTimeout(() => URL.revokeObjectURL(svgDownloadUrl), 100);
-        }
-      };
-      
-      img.src = url;
+        console.log('✅ Chart exported successfully!');
+      }, 'image/png', 1.0);
       
     } catch (error) {
-      console.error('Chart export error:', error);
-      alert('Failed to export chart: ' + error.message + '\n\nPlease try using your browser screenshot tool (Print Screen or Ctrl+Shift+S).');
+      console.error('❌ Export failed:', error);
+      alert('Failed to export chart: ' + error.message + '\n\nPlease check the browser console for details.');
     }
   };
 
