@@ -58,25 +58,46 @@ const TideDataProcessor = () => {
   const formatDateTimeForExport = (date, format) => {
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
+    const year = String(date.getFullYear());
     const yearShort = String(year).slice(-2);
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
     const seconds = String(date.getSeconds()).padStart(2, '0');
 
+    // Build the formatted string by replacing tokens in order
     let result = format;
     
-    if (format.startsWith('yyyy')) {
-      result = result.replace('yyyy', year);
-    } else if (format.startsWith('yy')) {
-      result = result.replace('yy', yearShort);
-    }
+    // Replace yyyy first (before yy to avoid partial replacement)
+    result = result.replace(/yyyy/g, year);
+    result = result.replace(/yy/g, yearShort);
     
-    result = result.replace('mm', month).replace('dd', day);
-    result = result.replace('hh', hours).replace('mm', minutes);
+    // Replace dd and MM (use MM for month to distinguish from mm for minutes)
+    // But since format uses 'mm' for month, we need to be careful
+    // Strategy: replace date parts first, then time parts
     
-    if (format.includes(':ss')) {
-      result = result.replace(':ss', `:${seconds}`);
+    // For formats like "dd/mm/yyyy hh:mm:ss"
+    // Split by space to separate date and time
+    const parts = result.split(' ');
+    
+    if (parts.length >= 2) {
+      // Has both date and time parts
+      let datePart = parts[0];
+      let timePart = parts.slice(1).join(' ');
+      
+      // Replace in date part
+      datePart = datePart.replace(/dd/g, day);
+      datePart = datePart.replace(/mm/g, month);
+      
+      // Replace in time part
+      timePart = timePart.replace(/hh/g, hours);
+      timePart = timePart.replace(/mm/g, minutes);
+      timePart = timePart.replace(/ss/g, seconds);
+      
+      result = datePart + ' ' + timePart;
+    } else {
+      // Only date part
+      result = result.replace(/dd/g, day);
+      result = result.replace(/mm/g, month);
     }
     
     return result;
@@ -353,37 +374,140 @@ const TideDataProcessor = () => {
     URL.revokeObjectURL(url);
   };
 
-  const exportChart = () => {
+  const exportChart = async () => {
     const chartElement = document.querySelector('.recharts-wrapper');
-    if (!chartElement) return;
+    if (!chartElement) {
+      alert('Chart not found. Please make sure the chart is visible.');
+      return;
+    }
 
     const svgElement = chartElement.querySelector('svg');
-    if (!svgElement) return;
+    if (!svgElement) {
+      alert('SVG element not found in chart.');
+      return;
+    }
 
-    const svgData = new XMLSerializer().serializeToString(svgElement);
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-
-    canvas.width = svgElement.width.baseVal.value;
-    canvas.height = svgElement.height.baseVal.value;
-
-    img.onload = () => {
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
+    try {
+      // Clone the SVG
+      const clonedSvg = svgElement.cloneNode(true);
       
-      canvas.toBlob((blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'tide_chart.png';
-        a.click();
-        URL.revokeObjectURL(url);
+      // Get dimensions
+      const bbox = svgElement.getBoundingClientRect();
+      const svgWidth = bbox.width || 800;
+      const svgHeight = bbox.height || 400;
+      
+      // Set dimensions and add white background to SVG itself
+      clonedSvg.setAttribute('width', svgWidth);
+      clonedSvg.setAttribute('height', svgHeight);
+      clonedSvg.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
+      
+      // Add white background rectangle as first child
+      const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      bgRect.setAttribute('width', '100%');
+      bgRect.setAttribute('height', '100%');
+      bgRect.setAttribute('fill', 'white');
+      clonedSvg.insertBefore(bgRect, clonedSvg.firstChild);
+      
+      // Inline all styles - this is critical for Recharts
+      const allElements = clonedSvg.querySelectorAll('*');
+      allElements.forEach(element => {
+        const computedStyle = window.getComputedStyle(svgElement.querySelector(`[class="${element.className.baseVal}"]`) || element);
+        
+        // Copy important styles
+        const importantStyles = [
+          'fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 
+          'font-weight', 'opacity', 'transform', 'text-anchor'
+        ];
+        
+        importantStyles.forEach(style => {
+          const value = computedStyle.getPropertyValue(style);
+          if (value && value !== 'none' && value !== 'normal') {
+            element.style[style] = value;
+          }
+        });
       });
-    };
-
-    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+      
+      // Serialize with proper encoding
+      const serializer = new XMLSerializer();
+      let svgString = serializer.serializeToString(clonedSvg);
+      
+      // Add XML declaration and proper namespaces
+      svgString = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>' + svgString;
+      
+      // Create blob and object URL
+      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+      
+      // Create image
+      const img = new Image();
+      img.width = svgWidth;
+      img.height = svgHeight;
+      
+      // Create canvas
+      const canvas = document.createElement('canvas');
+      const pixelRatio = 2; // For high quality
+      canvas.width = svgWidth * pixelRatio;
+      canvas.height = svgHeight * pixelRatio;
+      canvas.style.width = svgWidth + 'px';
+      canvas.style.height = svgHeight + 'px';
+      
+      const ctx = canvas.getContext('2d');
+      ctx.scale(pixelRatio, pixelRatio);
+      
+      img.onload = () => {
+        // Draw white background
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, svgWidth, svgHeight);
+        
+        // Draw image
+        ctx.drawImage(img, 0, 0, svgWidth, svgHeight);
+        
+        // Clean up
+        URL.revokeObjectURL(url);
+        
+        // Convert to PNG and download
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            alert('Failed to create PNG. Please try using your browser screenshot tool instead.');
+            return;
+          }
+          
+          const pngUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.download = `tide_chart_${new Date().getTime()}.png`;
+          link.href = pngUrl;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          
+          // Cleanup after a delay
+          setTimeout(() => URL.revokeObjectURL(pngUrl), 100);
+        }, 'image/png', 1.0);
+      };
+      
+      img.onerror = (err) => {
+        console.error('Image load error:', err);
+        URL.revokeObjectURL(url);
+        
+        // Fallback: offer SVG download instead
+        if (confirm('PNG export failed. Would you like to download as SVG instead?')) {
+          const svgDownloadUrl = URL.createObjectURL(svgBlob);
+          const link = document.createElement('a');
+          link.download = `tide_chart_${new Date().getTime()}.svg`;
+          link.href = svgDownloadUrl;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(svgDownloadUrl), 100);
+        }
+      };
+      
+      img.src = url;
+      
+    } catch (error) {
+      console.error('Chart export error:', error);
+      alert('Failed to export chart: ' + error.message + '\n\nPlease try using your browser screenshot tool (Print Screen or Ctrl+Shift+S).');
+    }
   };
 
   const handleRangeChange = (e) => {
