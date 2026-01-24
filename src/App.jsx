@@ -35,6 +35,21 @@ const TideDataProcessor = () => {
   
   const chartRef = useRef(null);
 
+  // Load Inter font
+  useEffect(() => {
+    const link = document.createElement('link');
+    link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap';
+    link.rel = 'stylesheet';
+    document.head.appendChild(link);
+    
+    // Apply font to body
+    document.body.style.fontFamily = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
+    
+    return () => {
+      document.head.removeChild(link);
+    };
+  }, []);
+
   useEffect(() => {
     if (highlightInterpolated) {
       const interpPoints = parsedData
@@ -382,22 +397,18 @@ const TideDataProcessor = () => {
     }
 
     try {
-      // Get the SVG's bounding box for accurate dimensions
       const bbox = svgElement.getBoundingClientRect();
       const width = Math.ceil(bbox.width);
       const height = Math.ceil(bbox.height);
       
-      // Create a new SVG element with all styles inlined
       const clonedSvg = svgElement.cloneNode(true);
       clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       clonedSvg.setAttribute('width', width);
       clonedSvg.setAttribute('height', height);
       
-      // Function to get all computed styles for an element
       const copyComputedStyles = (sourceElement, targetElement) => {
         const computedStyle = window.getComputedStyle(sourceElement);
         
-        // List of style properties to copy
         const stylesToCopy = [
           'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap',
           'stroke-linejoin', 'opacity', 'font-family', 'font-size', 'font-weight',
@@ -412,7 +423,6 @@ const TideDataProcessor = () => {
           }
         });
         
-        // Copy presentation attributes
         const presentationAttrs = ['fill', 'stroke', 'stroke-width', 'opacity'];
         presentationAttrs.forEach(attr => {
           if (sourceElement.hasAttribute(attr)) {
@@ -421,7 +431,6 @@ const TideDataProcessor = () => {
         });
       };
       
-      // Recursively copy styles from all elements
       const copyAllStyles = (source, target) => {
         copyComputedStyles(source, target);
         
@@ -437,7 +446,6 @@ const TideDataProcessor = () => {
       
       copyAllStyles(svgElement, clonedSvg);
       
-      // Add white background as first element
       const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       bgRect.setAttribute('width', '100%');
       bgRect.setAttribute('height', '100%');
@@ -446,36 +454,28 @@ const TideDataProcessor = () => {
       bgRect.setAttribute('y', '0');
       clonedSvg.insertBefore(bgRect, clonedSvg.firstChild);
       
-      // Convert SVG to string
       const serializer = new XMLSerializer();
       const svgString = serializer.serializeToString(clonedSvg);
-      
-      // Create a data URL (this is more reliable than blob URL for SVG)
       const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
       
-      // Create canvas for high-quality export
       const canvas = document.createElement('canvas');
-      const scale = 3; // 3x for very high quality
+      const scale = 3;
       canvas.width = width * scale;
       canvas.height = height * scale;
       
       const ctx = canvas.getContext('2d');
       ctx.scale(scale, scale);
       
-      // Draw white background on canvas
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, width, height);
       
-      // Create and load image
       const img = new Image();
       img.width = width;
       img.height = height;
       
-      // Wait for image to load
       await new Promise((resolve, reject) => {
         img.onload = () => {
           try {
-            // Draw the SVG image onto canvas
             ctx.drawImage(img, 0, 0, width, height);
             resolve();
           } catch (err) {
@@ -484,14 +484,12 @@ const TideDataProcessor = () => {
         };
         
         img.onerror = (err) => {
-          reject(new Error('Failed to load SVG image: ' + err));
+          reject(new Error('Failed to load SVG image'));
         };
         
-        // Set the source to trigger loading
         img.src = svgDataUrl;
       });
       
-      // Convert canvas to blob and download
       canvas.toBlob((blob) => {
         if (!blob) {
           throw new Error('Failed to create image blob from canvas');
@@ -507,15 +505,41 @@ const TideDataProcessor = () => {
         link.click();
         document.body.removeChild(link);
         
-        // Clean up
         setTimeout(() => URL.revokeObjectURL(url), 100);
-        
-        console.log('✅ Chart exported successfully!');
       }, 'image/png', 1.0);
       
     } catch (error) {
       console.error('❌ Export failed:', error);
-      alert('Failed to export chart: ' + error.message + '\n\nPlease check the browser console for details.');
+      
+      const useAlternative = confirm(
+        '❌ PNG Export Failed\n\n' +
+        'The browser cannot convert the chart to PNG.\n\n' +
+        'Would you like to:\n' +
+        '✅ OK = Download as SVG instead (can be opened in browser/Inkscape)\n' +
+        '❌ Cancel = Close this dialog\n\n' +
+        'SVG files are vector format and have PERFECT quality at any size.'
+      );
+      
+      if (useAlternative) {
+        try {
+          const svgElement = document.querySelector('.recharts-wrapper svg');
+          const clonedSvg = svgElement.cloneNode(true);
+          const serializer = new XMLSerializer();
+          const svgString = serializer.serializeToString(clonedSvg);
+          
+          const blob = new Blob([svgString], { type: 'image/svg+xml' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.download = `tide_chart_${new Date().getTime()}.svg`;
+          link.href = url;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(url), 100);
+        } catch (svgError) {
+          console.error('SVG export also failed:', svgError);
+        }
+      }
     }
   };
 
@@ -1069,10 +1093,15 @@ const TideDataProcessor = () => {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">Tide Data Processor</h1>
+    <div className="p-6 max-w-6xl mx-auto" style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" }}>
+      <div className="mb-8">
+        <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-teal-600 bg-clip-text text-transparent">
+          Tide Data Processor
+        </h1>
+        <p className="text-gray-600 text-sm font-medium">Multi-Method Tidal Harmonic Analysis</p>
+      </div>
 
-      <div className="mb-6">
+      <div className="mb-6" style={{ fontFamily: "'Inter', sans-serif" }}>
         <label className="block font-semibold mb-2">Date Format:</label>
         <select 
           value={dateFormat} 
@@ -1094,13 +1123,14 @@ const TideDataProcessor = () => {
         </select>
       </div>
 
-      <div className="mb-6">
+      <div className="mb-6" style={{ fontFamily: "'Inter', sans-serif" }}>
         <label className="block font-semibold mb-2">Paste Tide Data:</label>
         <textarea
           value={rawData}
           onChange={(e) => setRawData(e.target.value)}
-          className="w-full h-48 p-2 border rounded font-mono text-sm"
+          className="w-full h-48 p-2 border rounded text-sm"
           placeholder="2025/08/22 06:40 -0.260359"
+          style={{ fontFamily: "'Inter', 'Monaco', 'Courier New', monospace" }}
         />
         <button
           onClick={parseData}
