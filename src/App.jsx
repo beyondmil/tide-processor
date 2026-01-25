@@ -390,33 +390,66 @@ const TideDataProcessor = () => {
   };
 
 const exportChart = () => {
-  // 1. Find the Recharts SVG element
-  const svgElement = document.querySelector('.recharts-wrapper svg');
+  // Find the actual chart SVG more reliably
+  const chartContainer = document.querySelector('.recharts-responsive-container');
+  const svgElement = chartContainer?.querySelector('svg');
+  
   if (!svgElement) {
-    alert('Chart not found.');
+    alert('Chart SVG not found.');
     return;
   }
-
+  
   try {
-    // 2. GET DIMENSIONS (Crucial step!)
-    // This tells the downloaded file how large the image is.
-    const bbox = svgElement.getBoundingClientRect();
-    const width = Math.ceil(bbox.width);
-    const height = Math.ceil(bbox.height);
-
-    // 3. Clone the SVG and set necessary namespaces AND dimensions
+    // Clone the SVG
     const clonedSvg = svgElement.cloneNode(true);
-    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    clonedSvg.setAttribute('width', width);   // Added this
-    clonedSvg.setAttribute('height', height); // Added this
     
-    // 4. Serialize to XML string
+    // Add required namespaces
+    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    
+    // INLINE ALL STYLES - Critical step!
+    const inlineStyles = (element) => {
+      if (element.nodeType === 1) {
+        // Get computed styles
+        const computedStyle = window.getComputedStyle(element);
+        let styleString = '';
+        
+        // Convert important styles to inline attributes
+        for (let i = 0; i < computedStyle.length; i++) {
+          const property = computedStyle[i];
+          const value = computedStyle.getPropertyValue(property);
+          
+          // Only include essential styles to avoid bloating
+          if (['fill', 'stroke', 'stroke-width', 'opacity', 'font-family', 'font-size'].includes(property)) {
+            styleString += `${property}:${value};`;
+          }
+        }
+        
+        if (styleString) {
+          element.setAttribute('style', styleString);
+        }
+      }
+      
+      // Process child elements recursively
+      for (let i = 0; i < element.childNodes.length; i++) {
+        inlineStyles(element.childNodes[i]);
+      }
+    };
+    
+    inlineStyles(clonedSvg);
+    
+    // Set proper dimensions
+    const bbox = svgElement.getBBox();
+    clonedSvg.setAttribute('width', bbox.width + 20);  // Add padding
+    clonedSvg.setAttribute('height', bbox.height + 20);
+    clonedSvg.setAttribute('viewBox', `${bbox.x-10} ${bbox.y-10} ${bbox.width+20} ${bbox.height+20}`);
+    
+    // Serialize and download
     const serializer = new XMLSerializer();
     const svgString = serializer.serializeToString(clonedSvg);
-    
-    // 5. Create a Blob and download it
     const blob = new Blob([svgString], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
+    
     const link = document.createElement('a');
     link.download = `tide_chart_${new Date().getTime()}.svg`;
     link.href = url;
@@ -424,11 +457,10 @@ const exportChart = () => {
     link.click();
     document.body.removeChild(link);
     
-    // Cleanup
     setTimeout(() => URL.revokeObjectURL(url), 100);
   } catch (error) {
     console.error('Export failed:', error);
-    alert('Failed to export chart');
+    alert('Failed to export chart: ' + error.message);
   }
 };
 
