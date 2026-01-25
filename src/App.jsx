@@ -42,6 +42,7 @@ const TideDataProcessor = () => {
     link.rel = 'stylesheet';
     document.head.appendChild(link);
     
+    // Apply font to body
     document.body.style.fontFamily = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
     
     return () => {
@@ -78,25 +79,38 @@ const TideDataProcessor = () => {
     const minutes = String(date.getMinutes()).padStart(2, '0');
     const seconds = String(date.getSeconds()).padStart(2, '0');
 
+    // Build the formatted string by replacing tokens in order
     let result = format;
+    
+    // Replace yyyy first (before yy to avoid partial replacement)
     result = result.replace(/yyyy/g, year);
     result = result.replace(/yy/g, yearShort);
     
+    // Replace dd and MM (use MM for month to distinguish from mm for minutes)
+    // But since format uses 'mm' for month, we need to be careful
+    // Strategy: replace date parts first, then time parts
+    
+    // For formats like "dd/mm/yyyy hh:mm:ss"
+    // Split by space to separate date and time
     const parts = result.split(' ');
     
     if (parts.length >= 2) {
+      // Has both date and time parts
       let datePart = parts[0];
       let timePart = parts.slice(1).join(' ');
       
+      // Replace in date part
       datePart = datePart.replace(/dd/g, day);
       datePart = datePart.replace(/mm/g, month);
       
+      // Replace in time part
       timePart = timePart.replace(/hh/g, hours);
       timePart = timePart.replace(/mm/g, minutes);
       timePart = timePart.replace(/ss/g, seconds);
       
       result = datePart + ' ' + timePart;
     } else {
+      // Only date part
       result = result.replace(/dd/g, day);
       result = result.replace(/mm/g, month);
     }
@@ -311,6 +325,16 @@ const TideDataProcessor = () => {
     const endIdx = Math.ceil((timelineRange[1] / 100) * parsedData.length);
     
     const filtered = parsedData.slice(startIdx, endIdx);
+    console.log('🔍 getFilteredData called:', {
+      timelineRange,
+      startIdx,
+      endIdx,
+      totalPoints: parsedData.length,
+      filteredPoints: filtered.length,
+      startDate: filtered[0]?.formatted,
+      endDate: filtered[filtered.length - 1]?.formatted
+    });
+    
     return filtered;
   };
 
@@ -318,9 +342,10 @@ const TideDataProcessor = () => {
     if (interpolatedPoints.length === 0) return [];
     
     const currentPoint = interpolatedPoints[currentInterpolatedIndex];
-    const centerTime = currentPoint.datetime.getTime();
+    const centerIndex = currentPoint.dataIndex;
     
     const twoHours = 2 * 60 * 60 * 1000;
+    const centerTime = currentPoint.datetime.getTime();
     
     const viewData = parsedData.filter(point => {
       const pointTime = point.datetime.getTime();
@@ -364,157 +389,6 @@ const TideDataProcessor = () => {
     URL.revokeObjectURL(url);
   };
 
-  // FIXED EXPORT FUNCTION
-  const exportChart = async () => {
-    const svgElement = document.querySelector('.recharts-wrapper svg');
-    if (!svgElement) {
-      alert('Chart not found. Please make sure the chart is visible.');
-      return;
-    }
-
-    try {
-      const bbox = svgElement.getBoundingClientRect();
-      const width = Math.ceil(bbox.width);
-      const height = Math.ceil(bbox.height);
-      
-      const clonedSvg = svgElement.cloneNode(true);
-      
-      // Ensure namespace is set correctly
-      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      clonedSvg.setAttribute('width', width);
-      clonedSvg.setAttribute('height', height);
-      
-      // Improved style copying function
-      const copyComputedStyles = (source, target) => {
-        // Only process element nodes (nodeType 1)
-        if (source.nodeType !== 1 || target.nodeType !== 1) return;
-        
-        const computedStyle = window.getComputedStyle(source);
-        
-        const stylesToCopy = [
-          'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap',
-          'stroke-linejoin', 'opacity', 'font-family', 'font-size', 'font-weight',
-          'font-style', 'text-anchor', 'dominant-baseline', 'transform',
-          'clip-path', 'filter', 'mask', 'visibility', 'display'
-        ];
-        
-        stylesToCopy.forEach(prop => {
-          const value = computedStyle.getPropertyValue(prop);
-          if (value && value !== 'none' && value !== 'normal' && value !== 'auto') {
-            target.style.setProperty(prop, value);
-          }
-        });
-        
-        // Handle children recursively
-        const sourceChildren = Array.from(source.children);
-        const targetChildren = Array.from(target.children);
-        
-        sourceChildren.forEach((child, index) => {
-          if (targetChildren[index]) {
-            copyComputedStyles(child, targetChildren[index]);
-          }
-        });
-      };
-      
-      copyComputedStyles(svgElement, clonedSvg);
-      
-      // Create a white background rect
-      const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      bgRect.setAttribute('width', '100%');
-      bgRect.setAttribute('height', '100%');
-      bgRect.setAttribute('fill', 'white');
-      bgRect.setAttribute('x', '0');
-      bgRect.setAttribute('y', '0');
-      clonedSvg.insertBefore(bgRect, clonedSvg.firstChild);
-      
-      const serializer = new XMLSerializer();
-      const svgString = serializer.serializeToString(clonedSvg);
-      
-      // Use Blob instead of Data URI to handle large charts without crashing
-      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      
-      const canvas = document.createElement('canvas');
-      const scale = 2; // Reduced scale slightly for stability
-      canvas.width = width * scale;
-      canvas.height = height * scale;
-      
-      const ctx = canvas.getContext('2d');
-      ctx.scale(scale, scale);
-      
-      // Fill white background on canvas as fallback
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, width, height);
-      
-      const img = new Image();
-      
-      await new Promise((resolve, reject) => {
-        img.onload = () => {
-          try {
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve();
-          } catch (err) {
-            reject(new Error('Failed to draw image on canvas: ' + err.message));
-          }
-        };
-        
-        img.onerror = (err) => {
-          reject(new Error('Failed to load SVG image. ' + err.message));
-        };
-        
-        img.src = url;
-      });
-      
-      // Revoke the blob URL
-      URL.revokeObjectURL(url);
-      
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          throw new Error('Failed to create image blob from canvas');
-        }
-        
-        const link = document.createElement('a');
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        link.download = `tide_chart_${timestamp}.png`;
-        link.href = URL.createObjectURL(blob);
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        setTimeout(() => URL.revokeObjectURL(link.href), 100);
-      }, 'image/png', 1.0);
-      
-    } catch (error) {
-      console.error('❌ Export failed:', error);
-      
-      const useAlternative = confirm(
-        '❌ PNG Export Failed\n\n' +
-        'Would you like to download as SVG instead?'
-      );
-      
-      if (useAlternative) {
-        try {
-          const svgElement = document.querySelector('.recharts-wrapper svg');
-          const serializer = new XMLSerializer();
-          const svgString = serializer.serializeToString(svgElement);
-          
-          const blob = new Blob([svgString], { type: 'image/svg+xml' });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.download = `tide_chart_${new Date().getTime()}.svg`;
-          link.href = url;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setTimeout(() => URL.revokeObjectURL(url), 100);
-        } catch (svgError) {
-          console.error('SVG export also failed:', svgError);
-        }
-      }
-    }
-  };
-
   const handleRangeChange = (e) => {
     const value = JSON.parse(e.target.value);
     setTimelineRange(value);
@@ -549,6 +423,7 @@ const TideDataProcessor = () => {
 
   const performSimplifiedAnalysis = () => {
     const filteredData = getFilteredData();
+    console.log('📊 Simplified Analysis - Filtered data points:', filteredData.length);
     if (filteredData.length === 0) return;
     
     setLastAnalyzedRange([...timelineRange]);
@@ -632,7 +507,7 @@ const TideDataProcessor = () => {
     const h = 280.4661 + 36000.7698 * T;
     const p = 83.3535 + 4069.0137 * T;
     const N = 125.0445 - 1934.1363 * T;
-    // const p1 = 282.9400 + 1.7192 * T;
+    const p1 = 282.9400 + 1.7192 * T;
     
     const N_rad = N * (Math.PI / 180);
     
@@ -938,6 +813,7 @@ const TideDataProcessor = () => {
   };
 
   const performTTideAnalysis = () => {
+    console.log('🌊 Starting T_TIDE Analysis (Full Implementation)');
     const filteredData = getFilteredData();
     if (filteredData.length === 0) return;
     
@@ -951,6 +827,9 @@ const TideDataProcessor = () => {
     // Rayleigh criterion: minimum frequency separation
     const rayleigh = 1.0; // Rayleigh criterion factor
     const minres = rayleigh / (dt * nobs);
+    
+    console.log(`Data length: ${dataLengthDays.toFixed(2)} days, ${nobs} points`);
+    console.log(`Min resolvable frequency separation: ${minres.toFixed(8)} cph`);
     
     // Get all constituents
     const allConstituents = getTTideConstituents();
@@ -979,6 +858,8 @@ const TideDataProcessor = () => {
         }
       }
     });
+    
+    console.log(`Selected ${Object.keys(selectedConstituents).length} constituents (Rayleigh criterion)`);
     
     // Calculate mean sea level
     const msl = filteredData.reduce((sum, d) => sum + d.value, 0) / filteredData.length;
@@ -1036,6 +917,8 @@ const TideDataProcessor = () => {
         description: constName
       };
     });
+    
+    console.log(`Analysis complete. Analyzed ${Object.keys(results).length} constituents`);
     
     setHarmonicResults({
       method: 'T_TIDE Method (Pawlowicz et al. 2002)',
@@ -1360,13 +1243,6 @@ const TideDataProcessor = () => {
           <div className="mb-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">Tide Chart</h2>
-              <button
-                onClick={exportChart}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-2"
-              >
-                <Download size={16} />
-                Export Chart (PNG)
-              </button>
             </div>
             <ResponsiveContainer width="100%" height={400}>
               <LineChart data={getChartData()}>
