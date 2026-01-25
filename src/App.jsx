@@ -389,157 +389,38 @@ const TideDataProcessor = () => {
     URL.revokeObjectURL(url);
   };
 
-  const exportChart = async () => {
+const exportChart = () => {
+    // 1. Find the Recharts SVG element
     const svgElement = document.querySelector('.recharts-wrapper svg');
     if (!svgElement) {
-      alert('Chart not found. Please make sure the chart is visible.');
+      alert('Chart not found.');
       return;
     }
 
     try {
-      const bbox = svgElement.getBoundingClientRect();
-      const width = Math.ceil(bbox.width);
-      const height = Math.ceil(bbox.height);
-      
+      // 2. Clone the SVG and set necessary namespaces
       const clonedSvg = svgElement.cloneNode(true);
       clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      clonedSvg.setAttribute('width', width);
-      clonedSvg.setAttribute('height', height);
       
-      const copyComputedStyles = (sourceElement, targetElement) => {
-        const computedStyle = window.getComputedStyle(sourceElement);
-        
-        const stylesToCopy = [
-          'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap',
-          'stroke-linejoin', 'opacity', 'font-family', 'font-size', 'font-weight',
-          'font-style', 'text-anchor', 'dominant-baseline', 'transform',
-          'clip-path', 'filter', 'mask'
-        ];
-        
-        stylesToCopy.forEach(prop => {
-          const value = computedStyle.getPropertyValue(prop);
-          if (value && value !== 'none' && value !== 'normal' && value !== 'auto') {
-            targetElement.style.setProperty(prop, value);
-          }
-        });
-        
-        const presentationAttrs = ['fill', 'stroke', 'stroke-width', 'opacity'];
-        presentationAttrs.forEach(attr => {
-          if (sourceElement.hasAttribute(attr)) {
-            targetElement.setAttribute(attr, sourceElement.getAttribute(attr));
-          }
-        });
-      };
-      
-      const copyAllStyles = (source, target) => {
-        copyComputedStyles(source, target);
-        
-        const sourceChildren = Array.from(source.children);
-        const targetChildren = Array.from(target.children);
-        
-        sourceChildren.forEach((sourceChild, index) => {
-          if (targetChildren[index]) {
-            copyAllStyles(sourceChild, targetChildren[index]);
-          }
-        });
-      };
-      
-      copyAllStyles(svgElement, clonedSvg);
-      
-      const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      bgRect.setAttribute('width', '100%');
-      bgRect.setAttribute('height', '100%');
-      bgRect.setAttribute('fill', 'white');
-      bgRect.setAttribute('x', '0');
-      bgRect.setAttribute('y', '0');
-      clonedSvg.insertBefore(bgRect, clonedSvg.firstChild);
-      
+      // 3. Serialize to XML string
       const serializer = new XMLSerializer();
       const svgString = serializer.serializeToString(clonedSvg);
-      const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
       
-      const canvas = document.createElement('canvas');
-      const scale = 3;
-      canvas.width = width * scale;
-      canvas.height = height * scale;
+      // 4. Create a Blob and download it
+      const blob = new Blob([svgString], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.download = `tide_chart_${new Date().getTime()}.svg`;
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
       
-      const ctx = canvas.getContext('2d');
-      ctx.scale(scale, scale);
-      
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, width, height);
-      
-      const img = new Image();
-      img.width = width;
-      img.height = height;
-      
-      await new Promise((resolve, reject) => {
-        img.onload = () => {
-          try {
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve();
-          } catch (err) {
-            reject(new Error('Failed to draw image on canvas: ' + err.message));
-          }
-        };
-        
-        img.onerror = (err) => {
-          reject(new Error('Failed to load SVG image'));
-        };
-        
-        img.src = svgDataUrl;
-      });
-      
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          throw new Error('Failed to create image blob from canvas');
-        }
-        
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        link.download = `tide_chart_${timestamp}.png`;
-        link.href = url;
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        setTimeout(() => URL.revokeObjectURL(url), 100);
-      }, 'image/png', 1.0);
-      
+      // Cleanup
+      setTimeout(() => URL.revokeObjectURL(url), 100);
     } catch (error) {
-      console.error('❌ Export failed:', error);
-      
-      const useAlternative = confirm(
-        '❌ PNG Export Failed\n\n' +
-        'The browser cannot convert the chart to PNG.\n\n' +
-        'Would you like to:\n' +
-        '✅ OK = Download as SVG instead (can be opened in browser/Inkscape)\n' +
-        '❌ Cancel = Close this dialog\n\n' +
-        'SVG files are vector format and have PERFECT quality at any size.'
-      );
-      
-      if (useAlternative) {
-        try {
-          const svgElement = document.querySelector('.recharts-wrapper svg');
-          const clonedSvg = svgElement.cloneNode(true);
-          const serializer = new XMLSerializer();
-          const svgString = serializer.serializeToString(clonedSvg);
-          
-          const blob = new Blob([svgString], { type: 'image/svg+xml' });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.download = `tide_chart_${new Date().getTime()}.svg`;
-          link.href = url;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setTimeout(() => URL.revokeObjectURL(url), 100);
-        } catch (svgError) {
-          console.error('SVG export also failed:', svgError);
-        }
-      }
+      console.error('Export failed:', error);
+      alert('Failed to export chart');
     }
   };
 
