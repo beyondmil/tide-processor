@@ -390,8 +390,7 @@ const TideDataProcessor = () => {
   };
 
 const exportChart = () => {
-  // Find the actual chart SVG more reliably
-  const chartContainer = document.querySelector('.recharts-responsive-container');
+  const chartContainer = document.querySelector('.recharts-wrapper'); // Recharts wrapper is more reliable
   const svgElement = chartContainer?.querySelector('svg');
   
   if (!svgElement) {
@@ -400,54 +399,48 @@ const exportChart = () => {
   }
   
   try {
-    // Clone the SVG
+    // 1. Get dimensions from the LIVE element (before cloning)
+    const bbox = svgElement.getBBox();
+    const width = svgElement.clientWidth || bbox.width;
+    const height = svgElement.clientHeight || bbox.height;
+
+    // 2. Clone the SVG
     const clonedSvg = svgElement.cloneNode(true);
-    
-    // Add required namespaces
     clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
     
-    // INLINE ALL STYLES - Critical step!
-    const inlineStyles = (element) => {
-      if (element.nodeType === 1) {
-        // Get computed styles
-        const computedStyle = window.getComputedStyle(element);
+    // 3. Inline Styles (Using your logic, it's solid)
+    const inlineStyles = (source, target) => {
+      if (source.nodeType === 1) {
+        const computedStyle = window.getComputedStyle(source);
         let styleString = '';
+        // Add 'stroke-dasharray' to your list to keep the grid lines dashed!
+        const properties = ['fill', 'stroke', 'stroke-width', 'opacity', 'font-family', 'font-size', 'stroke-dasharray'];
         
-        // Convert important styles to inline attributes
-        for (let i = 0; i < computedStyle.length; i++) {
-          const property = computedStyle[i];
-          const value = computedStyle.getPropertyValue(property);
-          
-          // Only include essential styles to avoid bloating
-          if (['fill', 'stroke', 'stroke-width', 'opacity', 'font-family', 'font-size'].includes(property)) {
-            styleString += `${property}:${value};`;
-          }
-        }
+        properties.forEach(prop => {
+          const value = computedStyle.getPropertyValue(prop);
+          if (value) styleString += `${prop}:${value};`;
+        });
         
-        if (styleString) {
-          element.setAttribute('style', styleString);
+        target.setAttribute('style', styleString);
+        
+        for (let i = 0; i < source.children.length; i++) {
+          inlineStyles(source.children[i], target.children[i]);
         }
-      }
-      
-      // Process child elements recursively
-      for (let i = 0; i < element.childNodes.length; i++) {
-        inlineStyles(element.childNodes[i]);
       }
     };
     
-    inlineStyles(clonedSvg);
+    inlineStyles(svgElement, clonedSvg);
     
-    // Set proper dimensions
-    const bbox = svgElement.getBBox();
-    clonedSvg.setAttribute('width', bbox.width + 20);  // Add padding
-    clonedSvg.setAttribute('height', bbox.height + 20);
-    clonedSvg.setAttribute('viewBox', `${bbox.x-10} ${bbox.y-10} ${bbox.width+20} ${bbox.height+20}`);
-    
-    // Serialize and download
+    // 4. Set Dimensions & ViewBox
+    clonedSvg.setAttribute('width', width);
+    clonedSvg.setAttribute('height', height);
+    clonedSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    clonedSvg.style.backgroundColor = 'white'; // Added background so it's not transparent
+
+    // 5. Download
     const serializer = new XMLSerializer();
     const svgString = serializer.serializeToString(clonedSvg);
-    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     
     const link = document.createElement('a');
@@ -460,7 +453,7 @@ const exportChart = () => {
     setTimeout(() => URL.revokeObjectURL(url), 100);
   } catch (error) {
     console.error('Export failed:', error);
-    alert('Failed to export chart: ' + error.message);
+    alert('Failed to export chart');
   }
 };
 
