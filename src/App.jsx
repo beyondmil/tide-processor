@@ -390,56 +390,123 @@ const TideDataProcessor = () => {
   };
 
 const exportChart = () => {
-  const chartContainer = document.querySelector('.recharts-wrapper'); // Recharts wrapper is more reliable
-  const svgElement = chartContainer?.querySelector('svg');
+  // Try multiple selectors to find the SVG
+  let svgElement = null;
+  
+  // Try different selectors - Recharts can have different structures
+  const selectors = [
+    '.recharts-wrapper svg',
+    '.recharts-responsive-container svg',
+    'svg.recharts-surface'
+  ];
+  
+  for (const selector of selectors) {
+    svgElement = document.querySelector(selector);
+    if (svgElement) break;
+  }
   
   if (!svgElement) {
-    alert('Chart SVG not found.');
+    // Last attempt - look for any SVG in the chart area
+    const chartContainer = document.querySelector('.recharts-responsive-container');
+    if (chartContainer) {
+      svgElement = chartContainer.querySelector('svg');
+    }
+  }
+  
+  if (!svgElement) {
+    alert('Chart SVG not found. Please ensure the chart is visible.');
     return;
   }
   
   try {
-    // 1. Get dimensions from the LIVE element (before cloning)
-    const bbox = svgElement.getBBox();
-    const width = svgElement.clientWidth || bbox.width;
-    const height = svgElement.clientHeight || bbox.height;
-
-    // 2. Clone the SVG
+    // Clone the SVG and its parent container to preserve dimensions
     const clonedSvg = svgElement.cloneNode(true);
-    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     
-    // 3. Inline Styles (Using your logic, it's solid)
-    const inlineStyles = (source, target) => {
+    // Create a wrapper div with proper dimensions
+    const wrapper = svgElement.closest('.recharts-wrapper');
+    const container = svgElement.closest('.recharts-responsive-container');
+    
+    const width = container ? container.clientWidth : 800;
+    const height = container ? container.clientHeight : 400;
+    
+    // Set dimensions on the cloned SVG
+    clonedSvg.setAttribute('width', width);
+    clonedSvg.setAttribute('height', height);
+    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    
+    // Create a temporary container to style the SVG
+    const tempContainer = document.createElement('div');
+    tempContainer.style.width = `${width}px`;
+    tempContainer.style.height = `${height}px`;
+    tempContainer.style.backgroundColor = 'white';
+    tempContainer.style.position = 'absolute';
+    tempContainer.style.left = '-9999px';
+    tempContainer.style.top = '-9999px';
+    
+    // Clone and re-apply styles
+    const copyStyles = (source, target) => {
       if (source.nodeType === 1) {
         const computedStyle = window.getComputedStyle(source);
-        let styleString = '';
-        // Add 'stroke-dasharray' to your list to keep the grid lines dashed!
-        const properties = ['fill', 'stroke', 'stroke-width', 'opacity', 'font-family', 'font-size', 'stroke-dasharray'];
+        const styleProps = [
+          'fill', 'stroke', 'stroke-width', 'opacity', 'font-family', 
+          'font-size', 'font-weight', 'text-anchor', 'stroke-dasharray',
+          'stroke-linecap', 'stroke-linejoin', 'color'
+        ];
         
-        properties.forEach(prop => {
+        let styleString = '';
+        styleProps.forEach(prop => {
           const value = computedStyle.getPropertyValue(prop);
-          if (value) styleString += `${prop}:${value};`;
+          if (value && value !== 'none' && value !== 'rgba(0, 0, 0, 0)') {
+            styleString += `${prop}:${value};`;
+          }
         });
         
-        target.setAttribute('style', styleString);
+        if (styleString) {
+          target.setAttribute('style', styleString);
+        }
         
+        // Special handling for text elements
+        if (source.tagName === 'text') {
+          const fontSize = computedStyle.getPropertyValue('font-size');
+          if (fontSize) target.setAttribute('font-size', fontSize);
+          
+          const fontFamily = computedStyle.getPropertyValue('font-family');
+          if (fontFamily) target.setAttribute('font-family', fontFamily);
+        }
+        
+        // Copy specific attributes that might be missing
+        const attributesToCopy = ['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'd', 'points'];
+        attributesToCopy.forEach(attr => {
+          if (source.hasAttribute(attr)) {
+            target.setAttribute(attr, source.getAttribute(attr));
+          }
+        });
+        
+        // Recursively process children
         for (let i = 0; i < source.children.length; i++) {
-          inlineStyles(source.children[i], target.children[i]);
+          if (target.children[i]) {
+            copyStyles(source.children[i], target.children[i]);
+          }
         }
       }
     };
     
-    inlineStyles(svgElement, clonedSvg);
+    // Apply styles to the cloned SVG
+    copyStyles(svgElement, clonedSvg);
     
-    // 4. Set Dimensions & ViewBox
-    clonedSvg.setAttribute('width', width);
-    clonedSvg.setAttribute('height', height);
-    clonedSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    clonedSvg.style.backgroundColor = 'white'; // Added background so it's not transparent
-
-    // 5. Download
+    // Append to temp container
+    tempContainer.appendChild(clonedSvg);
+    document.body.appendChild(tempContainer);
+    
+    // Serialize to string
     const serializer = new XMLSerializer();
-    const svgString = serializer.serializeToString(clonedSvg);
+    let svgString = serializer.serializeToString(clonedSvg);
+    
+    // Add XML declaration and DOCTYPE
+    svgString = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n' + svgString;
+    
+    // Create download
     const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     
@@ -450,10 +517,12 @@ const exportChart = () => {
     link.click();
     document.body.removeChild(link);
     
+    // Clean up
+    document.body.removeChild(tempContainer);
     setTimeout(() => URL.revokeObjectURL(url), 100);
   } catch (error) {
     console.error('Export failed:', error);
-    alert('Failed to export chart');
+    alert('Failed to export chart. Please try again.');
   }
 };
 
