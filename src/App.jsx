@@ -390,39 +390,47 @@ const TideDataProcessor = () => {
   };
 
 const exportChart = () => {
-    // 1. Find the Recharts SVG element
-    const svgElement = document.querySelector('.recharts-wrapper svg');
-    if (!svgElement) {
-      alert('Chart not found.');
-      return;
-    }
+  // 1. Find the Recharts SVG element
+  const svgElement = document.querySelector('.recharts-wrapper svg');
+  if (!svgElement) {
+    alert('Chart not found.');
+    return;
+  }
 
-    try {
-      // 2. Clone the SVG and set necessary namespaces
-      const clonedSvg = svgElement.cloneNode(true);
-      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      
-      // 3. Serialize to XML string
-      const serializer = new XMLSerializer();
-      const svgString = serializer.serializeToString(clonedSvg);
-      
-      // 4. Create a Blob and download it
-      const blob = new Blob([svgString], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.download = `tide_chart_${new Date().getTime()}.svg`;
-      link.href = url;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Cleanup
-      setTimeout(() => URL.revokeObjectURL(url), 100);
-    } catch (error) {
-      console.error('Export failed:', error);
-      alert('Failed to export chart');
-    }
-  };
+  try {
+    // 2. GET DIMENSIONS (Crucial step!)
+    // This tells the downloaded file how large the image is.
+    const bbox = svgElement.getBoundingClientRect();
+    const width = Math.ceil(bbox.width);
+    const height = Math.ceil(bbox.height);
+
+    // 3. Clone the SVG and set necessary namespaces AND dimensions
+    const clonedSvg = svgElement.cloneNode(true);
+    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clonedSvg.setAttribute('width', width);   // Added this
+    clonedSvg.setAttribute('height', height); // Added this
+    
+    // 4. Serialize to XML string
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(clonedSvg);
+    
+    // 5. Create a Blob and download it
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = `tide_chart_${new Date().getTime()}.svg`;
+    link.href = url;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Cleanup
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  } catch (error) {
+    console.error('Export failed:', error);
+    alert('Failed to export chart');
+  }
+};
 
   const handleRangeChange = (e) => {
     const value = JSON.parse(e.target.value);
