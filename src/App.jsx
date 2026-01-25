@@ -976,7 +976,7 @@ const TideDataProcessor = () => {
           onChange={(e) => setRawData(e.target.value)}
           className="w-full h-48 p-2 border rounded text-sm"
           placeholder="2025/08/22 06:40 -0.260359"
-          style={{ fontFamily: "'Inter', 'Monaco', 'Courier New', monospace" }}
+          style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" }}
         />
         <button
           onClick={parseData}
